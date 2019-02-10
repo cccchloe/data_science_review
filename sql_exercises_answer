@@ -1,0 +1,245 @@
+Q1
+MY ANSWER:
+with cte1 as(
+	select 
+		*,
+		row_number() over( partition by user_id order by unix_timestamp desc) as rank
+	from query_one
+	);
+select
+	user_id,
+	b.unix_timestamp-c.unix_timestamp as delta_secondlast_last_action
+from 
+	query_one a
+	(select * from cte1 where rank=1) b,
+	(select * from cte2 where rank=2) c
+where
+	a.user_id=b.user_id
+	and
+	b.user_id=c.user_id;
+
+ANSWER:
+
+select
+	user_id,
+	unix_timestamp-prev_time as delta_secondlast_last_action
+from 
+	query_one,
+	(select 
+			*,
+			row_number() over (partition by user_id order by unix_timestamp desc) as rank,
+			lag(unix_timestamp,1) over (partition by user_id order by rank) as prev_time
+		from 
+			query_one) tmp
+where
+	rank=1
+order by
+	user_id;
+
+
+Q2
+
+select
+	100*sum(case when w_user is null then 1 else 0 end)/count(*) as MOBILE_ONLY,
+	100*sum(case when m_user is null then 1 else 0 end)/count(*) as WEB_ONLY,
+	100*sum(case when m_user is not null and w_user is not null then 1 else 0 end)/count(*) as BOTH
+from 
+	(select distinct user_id as m_user from data_mobile) t1
+full outer join
+	(select distinct user_id as w_user from data_web) t2
+on 
+	t1.user_id=t2.user_id;
+
+
+Q3
+
+select 
+	user_id,
+	date
+from
+	(select
+		*,
+		row_number() over (partition by user_id order by date) as rank
+	from
+		query_three
+		)
+where 
+	rank=10;
+
+
+
+Q4.1
+
+select
+	sum(transaction_amount) as total_amount
+from 
+	(select * from data_march
+	union all
+	select * from data_april) tmp
+group by
+	user_id;
+
+Q4.2
+
+MY ANSWER:
+with cte as(
+select
+	*,
+	sum(transaction_amount) as transaction_amount
+from 
+	(select * from data_march
+	union all
+	select * from data_april
+	)  tmp
+group by 
+	user_id, date
+order by 
+	user_id,date)
+select
+	user_id,
+	date
+	sum(transaction_amount) as cumulative_sum
+from 
+	cte a
+	cte b
+where 
+	a. user_id=b.user_id
+	and
+	a.date>b.date;
+	
+
+Answer:
+
+select 
+	user_id,
+	date,
+	sum(amount) over (partition by user_id order by date) as cum_sum
+from 
+	(select user_id,date,sum(transaction_amount) as amount from data_march
+	group by user_id,date
+	union all
+	select user_id,date,sum(transaction_amount) as amount from  data_april
+	group by user_id, date) tmp
+order by
+	user_id，date;
+	
+	
+	
+Q5
+MY ANSWER:
+with cte as 	
+(select 
+	*,
+	to_date(transaction_date) as date,
+	row_number() over (order by transaction_amount) as rank
+from
+	user a
+	join
+	transaction_table b
+on
+	a.user_id=b.user_id
+	and
+	a.sign_up_date=date
+order by 
+	transaction_amount
+	)
+select
+	avg(transaction_amount) as average,
+	(select transaction_amount from cte 
+	where rank=
+	(select count(*)/2+1 from cte))as median
+from 
+	cte;
+	
+ANSWER:
+
+select 
+	avg(transaction_amount) as average,
+	avg(case when row_num_asc=row_num_dsc then transaction_amount else null end   ) as median
+from
+	(select
+		transaction_amount,
+		row_number() over (order by transaction_amount asc) as row_num_asc,
+		count(*)-row_number() over(order by transaction_amount dsc) +1 as row_num_dsc
+	from
+		user a
+	join
+		(select
+			*,
+			to_date(transaction_date) as date
+		from
+			transaction_table b
+		)
+	on
+		a.user_id=b.date
+		and
+		a.sign_up_date=b.date
+	) tmp
+
+Q6.1
+MY ANSWER:
+with cte as(
+	select
+		country,
+		count(distinct user_id) as cnt
+	from
+		data
+	group by
+		country
+	)
+select * from
+(select 
+	country,
+	cnt
+from
+	cte
+where
+	cnt= (select max(cnt) from cte)) t1,
+(select 
+	country,
+	cnt
+from
+	cte
+where
+	cnt=(select min(cnt) from cte)) t2;
+	
+ANSWER:
+Select
+	country
+from
+	(select
+		*,
+		row_number() over(order by cnt) as row_num_asc,
+		row_number() over(order by cnt) as row_num_dsc
+	from
+		(select
+			country,
+			count(distinct user_id) as cnt
+		from
+			data
+		group by
+			country
+		) tmp
+	) tmp2
+where 
+	row_num_asc=1
+	or
+	row_num_dsc=1;
+	
+Q6.2
+select
+	user_id,
+	created_at,
+	country
+from
+	(select 
+		*,
+		row_number() over(partition by country order by created_at asc) as row_num_asc,
+		row_number() over(partition by country order by created_at desc) as row_num_dsc
+	from
+		data
+	) tmp
+where
+	row_num_asc=1 or row_num_dsc=1;
+	
+	
